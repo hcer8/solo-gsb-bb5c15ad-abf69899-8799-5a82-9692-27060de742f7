@@ -27,22 +27,25 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
 import logging
 import os
 import secrets
 import sqlite3
 import time
+import urllib.parse
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import NamedTuple
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db as dbmod
+from . import export as reviewmod
 
 log = logging.getLogger("inject")
 logging.basicConfig(level=logging.INFO)
@@ -1006,6 +1009,41 @@ async def observe_snapshot(token: str):
         share = get_active_share_or_410(token)
         room = db.execute("SELECT * FROM rooms WHERE id = ?", (share["room_id"],)).fetchone()
         return build_snapshot(room, observer_scope_from(share))
+
+
+# ---------------------------------------------------------------- REST：复盘包导出
+
+@app.get("/api/rooms/{code}/review.zip")
+async def export_review_zip(code: str):
+    """主持人导出复盘 ZIP：按当前事件水位生成自包含离线回放包。
+
+    水位一致性：在 state_lock 内（与所有状态写操作同一把锁）先读
+    high_water = MAX(events.id)，随后采集的所有数据均以 id <= high_water
+    为准；临界区内不会插入新事件，锁释放后即使立刻有新事件，其 id 也必然
+    大于水位——生成期间到达的新事件绝不混入。空演练（无组、无卡、未开始）
+    同样能导出并打开。
+
+    包内不含房间码、组加入码与观察 token（share_* 事件整类剔除，
+    group_added 载荷去除 join_code）。
+    """
+    async with state_lock:
+        room = get_room_or_404(code)
+        high_water = db.execute(
+            "SELECT COALESCE(MAX(id), 0) AS m FROM events WHERE room_id = ?", (room["id"],)
+        ).fetchone()["m"]
+        data = reviewmod.build_review_data(db, room, high_water)
+        blob = reviewmod.build_review_zip(data)
+    filename = reviewmod.review_filename(room["name"])
+    return StreamingResponse(
+        io.BytesIO(blob),
+        media_type="application/zip",
+        headers={
+            "Content-Disposition": (
+                "attachment; filename*=UTF-8''" + urllib.parse.quote(filename)
+            ),
+            "Cache-Control": "no-store",
+        },
+    )
 
 
 # ---------------------------------------------------------------- REST：时钟控制

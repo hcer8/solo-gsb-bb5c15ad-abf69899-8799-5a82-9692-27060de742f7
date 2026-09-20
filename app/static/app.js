@@ -918,6 +918,42 @@ $('#btn-pause').onclick  = () => api('POST', `/api/rooms/${state.code}/pause`).c
 $('#btn-resume').onclick = () => api('POST', `/api/rooms/${state.code}/resume`).catch(showError);
 $('#btn-reset').onclick  = () => api('POST', `/api/rooms/${state.code}/reset`).catch(showError);
 
+/* 导出复盘 ZIP：按点击瞬间的事件水位打包（服务端在锁内定水位，生成期间新事件不混入）。
+   直接走浏览器下载，无需解析 JSON；导出进行中禁用按钮并提示。 */
+$('#btn-export').onclick = async () => {
+  const btn = $('#btn-export');
+  const hint = $('#export-hint');
+  btn.disabled = true;
+  hint.textContent = '正在按当前事件水位打包…';
+  try {
+    const res = await fetch(`/api/rooms/${state.code}/review.zip`, { cache: 'no-store' });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(typeof data.detail === 'string' ? data.detail : `导出失败 (${res.status})`);
+    }
+    const blob = await res.blob();
+    const wantName = /filename\*=UTF-8''([^;]+)/i.exec(
+      res.headers.get('content-disposition') || '');
+    const name = wantName ? decodeURIComponent(wantName[1])
+      : `review-${Date.now()}.zip`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    hint.textContent = '已导出（含离线回放页 replay.html，可直接打开）';
+    setTimeout(() => { hint.textContent = ''; }, 4000);
+  } catch (err) {
+    hint.textContent = '';
+    showError(err);
+  } finally {
+    btn.disabled = false;
+  }
+};
+
 $('#group-form').onsubmit = async (e) => {
   e.preventDefault();
   const name = $('#group-name').value.trim();

@@ -53,6 +53,14 @@
         <button id="btn-resume" class="primary">继续</button>
         <button id="btn-reset"  class="danger">重置</button>
       </div>
+      <div class="export-row">
+        <button id="btn-export" class="primary">导出复盘包（ZIP）</button>
+        <span id="export-hint" class="hint"></span>
+      </div>
+      <p class="hint">可在任意时刻（开始前 / 运行中 / 暂停后 / 重置后）导出：按点击瞬间的
+        <strong>事件水位</strong>打包，生成期间新到达的事件不会混入；空演练也能导出。
+        ZIP 内为离线回放页 <code>replay.html</code>（双击即可打开，可拖动虚拟时间还原当时状态），
+        已剔除房间码、组加入码与观察 token。</p>
 
       <h3>参与组（<span id="group-count">0</span>/8）</h3>
       <p class="hint">每组一个加入码；参与者凭码进入后只能看到「全员」卡片与目标为本组的卡片。</p>
