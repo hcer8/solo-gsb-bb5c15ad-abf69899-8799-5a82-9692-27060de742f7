@@ -918,6 +918,37 @@ $('#btn-pause').onclick  = () => api('POST', `/api/rooms/${state.code}/pause`).c
 $('#btn-resume').onclick = () => api('POST', `/api/rooms/${state.code}/resume`).catch(showError);
 $('#btn-reset').onclick  = () => api('POST', `/api/rooms/${state.code}/reset`).catch(showError);
 
+/* 导出复盘包：按当前事件水位生成 ZIP；导出期间服务端持锁，
+   新到达的事件不会混入本包。下载的 replay.html 双击即可离线打开。 */
+$('#btn-export').onclick = async () => {
+  const btn = $('#btn-export');
+  const hint = $('#export-hint');
+  btn.disabled = true;
+  hint.textContent = '正在按当前事件水位打包…';
+  try {
+    const res = await fetch(`/api/rooms/${state.code}/debrief.zip`);
+    if (!res.ok) throw new Error(`导出失败 (${res.status})`);
+    const blob = await res.blob();
+    const cd = res.headers.get('Content-Disposition') || '';
+    const m = cd.match(/filename="([^"]+)"/);
+    const filename = m ? m[1] : 'debrief.zip';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    hint.textContent = `复盘包已下载：${filename}（解压后双击 replay.html 离线回放）`;
+  } catch (err) {
+    hint.textContent = err.message;
+  } finally {
+    btn.disabled = false;
+    setTimeout(() => { if (hint.textContent.includes('打包')) hint.textContent = ''; }, 4000);
+  }
+};
+
 $('#group-form').onsubmit = async (e) => {
   e.preventDefault();
   const name = $('#group-name').value.trim();

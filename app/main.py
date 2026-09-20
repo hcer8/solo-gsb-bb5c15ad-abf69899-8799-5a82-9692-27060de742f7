@@ -38,11 +38,12 @@ from pathlib import Path
 from typing import NamedTuple
 
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from . import db as dbmod
+from .export import build_debrief_zip
 
 log = logging.getLogger("inject")
 logging.basicConfig(level=logging.INFO)
@@ -1086,6 +1087,30 @@ async def reset_room(code: str):
         await publish(room["code"], room["id"], "reset", payload)
         await publish_room_gate_refresh(room)  # 回执已清空，门槛回到等待
         return payload
+
+
+# ---------------------------------------------------------------- REST：复盘包导出
+
+@app.get("/api/rooms/{code}/debrief.zip")
+async def export_debrief(code: str):
+    """主持人导出离线复盘包：按当前事件水位生成 ZIP（含自包含回放页）。
+
+    整个读取与打包都在 state_lock 下完成，水位 W = 当前 MAX(events.id)，
+    包内事件只取 id <= W；导出本身不落事件、不改状态，因此可在
+    idle/paused/running 任意时刻执行，且生成期间到达的新事件不可能混入。
+    房间码、组加入码、观察 token 一律不进入包内（见 app/export.py）。
+    """
+    async with state_lock:
+        room = get_room_or_404(code)
+        data, watermark = build_debrief_zip(db, room)
+    stamp = time.strftime("%Y%m%d-%H%M%S", time.gmtime())
+    # 文件名只用水位与 UTC 时间，不含房间名/房间码，避免头部分码问题
+    filename = f"debrief-r{room['id']}-w{watermark}-{stamp}.zip"
+    return Response(
+        content=data,
+        media_type="application/zip",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )
 
 
 # ---------------------------------------------------------------- WebSocket
